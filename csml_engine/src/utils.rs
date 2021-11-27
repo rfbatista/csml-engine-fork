@@ -1,5 +1,5 @@
 use crate::{
-    data::{ConversationInfo, Database, EngineError, FlowTrigger, DEBUG},
+    data::{ConversationInfo, Database, EngineError, FlowTrigger},
     db_connectors::state::delete_state_key,
     send::send_to_callback_url,
     CsmlBot, CsmlFlow,
@@ -17,6 +17,8 @@ use serde_json::{json, map::Map, Value};
 use std::collections::HashMap;
 use std::env;
 
+use log::{debug};
+use regex::Regex;
 use md5::{Digest, Md5};
 
 /**
@@ -85,6 +87,15 @@ pub fn get_event_content(content_type: &str, metadata: &Value) -> Result<String,
                 ))
             }
         }
+        regex if regex == "regex" => {
+            if let Some(val) = metadata["payload"].as_str() {
+                Ok(val.to_string())
+            } else {
+                Err(EngineError::Interpreter(
+                    "invalid payload for event type regex".to_owned(),
+                ))
+            }
+        }
         flow_trigger if flow_trigger == "flow_trigger" => {
             match serde_json::from_value::<FlowTrigger>(metadata.clone()) {
                 Ok(_flow_trigger) => {
@@ -124,8 +135,8 @@ pub fn format_event(json_event: serde_json::Value) -> Result<Event, EngineError>
         content_type,
         content_value,
         content,
-        ttl: json_event["payload"]["tll"].as_i64(),
-        low_data: json_event["payload"]["tll"].as_bool(),
+        ttl_duration: json_event["payload"]["ttl_duration"].as_i64(),
+        low_data_mode: json_event["payload"]["low_data_mode"].as_bool(),
     })
 }
 
@@ -141,12 +152,7 @@ pub fn send_msg_to_callback_url(
 ) {
     let messages = messages_formater(data, msg, interaction_order, end);
 
-    match env::var(DEBUG) {
-        Ok(ref var) if var == "true" => {
-            println!("conversation_end => {}", messages["conversation_end"]);
-        }
-        _ => (),
-    };
+    debug!("conversation_end: {:?}", messages["conversation_end"]);
 
     send_to_callback_url(data, serde_json::json!(messages))
 }
@@ -266,6 +272,37 @@ pub fn search_flow<'a>(
                 Err(_) => Ok((get_flow_by_id(&bot.default_flow, &bot.flows)? , "start".to_owned())),
             }
         }
+        event if event.content_type == "regex" => {
+            let mut random_flows = vec![];
+
+            for flow in bot.flows.iter() {
+                let contains_command = flow
+                    .commands
+                    .iter()
+                    .any(|cmd| {
+                        if let Ok(action) = Regex::new(&event.content_value) {
+                            action.is_match(&cmd)
+                        } else {
+                            false
+                        }
+                    });
+
+                if contains_command {
+                    random_flows.push(flow)
+                }
+            }
+
+            match random_flows.choose(&mut rand::thread_rng()) {
+                Some(flow) => {
+                    delete_state_key(&client, "hold", "position", db)?;
+                    Ok((flow, "start".to_owned()))
+                }
+                None => Err(EngineError::Interpreter(format!(
+                    "no match found for regex: {}",
+                    event.content_value
+                ))),
+            }
+        }
         event => {
             let mut random_flows = vec![];
 
@@ -326,24 +363,21 @@ pub fn clean_hold_and_restart(data: &mut ConversationInfo) -> Result<(), EngineE
     return Ok(());
 }
 
-#[cfg(feature = "dynamo")]
 pub fn init_logger() {
     if let Ok(debug) = env::var("DEBUG") {
         // RUST_LOG=rusoto
         // hyper=debug
         if &debug == "true" {
-            env::set_var("RUST_LOG", "rusoto");
             env::set_var("hyper", "debug");
-
             let _ = env_logger::try_init();
         }
     };
 }
 
-pub fn get_tll_value(event: Option<&Event>) -> Option<chrono::Duration> {
+pub fn get_ttl_duration_value(event: Option<&Event>) -> Option<chrono::Duration> {
 
     if let Some(event) = event {
-        if let Some(ttl) = event.ttl {
+        if let Some(ttl) = event.ttl_duration {
             return Some(chrono::Duration::days(ttl))
         }
     }
@@ -357,13 +391,13 @@ pub fn get_tll_value(event: Option<&Event>) -> Option<chrono::Duration> {
     return None
 }
 
-pub fn get_low_data_value(event: &Event) -> bool {
-    if let Some(low_data) = event.low_data {
+pub fn get_low_data_mode_value(event: &Event) -> bool {
+    if let Some(low_data) = event.low_data_mode {
         return low_data;
     }
 
-    if let Ok(ttl) = env::var("LOW_DATA_MODE") {
-        if let Ok(low_data) = ttl.parse::<bool>() {
+    if let Ok(low_data) = env::var("LOW_DATA_MODE") {
+        if let Ok(low_data) = low_data.parse::<bool>() {
             return low_data;
         }
     }

@@ -33,6 +33,7 @@ fn main() {
         DEFAULT_FLOW_NAME,
         None,
         None,
+        None,
     );
 
     // Create an Event
@@ -40,8 +41,8 @@ fn main() {
         content_type: "payload".to_owned(), // text
         content_value: "4".to_owned(),
         content: serde_json::json!({"payload":"4"}),
-        ttl: None,
-        low_data: None,
+        ttl_duration: None,
+        low_data_mode: None,
     };
 
     // Create context
@@ -56,7 +57,7 @@ fn main() {
 
     // Run interpreter
     let result = validate_bot(&bot);
-
+    
     if result.errors.is_some() {
         dbg!(result.errors);
         return;

@@ -60,6 +60,7 @@ fn init_bot() -> CsmlBot {
         custom_components: None,
         default_flow: "flow".to_owned(),
         bot_ast: None,
+        no_interruption_delay: None,
         env: None,
     }
 }
@@ -88,7 +89,7 @@ fn main() {
                 }
             }
             Err(err) => {
-                println!("{:?}", err);
+                eprintln!("{:?}", err);
                 break;
             }
         }
