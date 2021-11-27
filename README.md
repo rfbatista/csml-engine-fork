@@ -183,6 +183,7 @@ This repository provides Node.js bindings of this rust library. To use this libr
 To compile CSML Engine into a [native node module](https://Node.js.org/api/addons.html), run:
 
 ```shell
+sudo apt install build-essential
 git clone https://github.com/CSML-by-Clevy/csml-engine csml
 neon build -p csml/bindings/node --release
 ```
